@@ -4,6 +4,8 @@ PWA for:
 - konkordans via `POST https://api.nb.no/dhlab/conc`
 - ordliste/frekvens via `POST https://api.nb.no/dhlab/frequencies`
 
+Se også: `APP_PHILOSOPHY.md` for prinsippet "data som velger operasjoner".
+
 ## Lokal utvikling
 
 ```bash
