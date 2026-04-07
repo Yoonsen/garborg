@@ -1,0 +1,31 @@
+{
+  "name": "garborg",
+  "version": "1.0.0",
+  "description": "PWA for konkordans og ordliste basert pa Excel-korpus",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "build:vocab": "node scripts/build-vocab.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yoonsen/garborg.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Yoonsen/garborg/issues"
+  },
+  "homepage": "https://github.com/Yoonsen/garborg#readme",
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.5"
+  }
+}
