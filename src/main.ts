@@ -1,5 +1,6 @@
 import "./style.css";
 import * as XLSX from "xlsx";
+import cloudFactory from "d3-cloud";
 import corpusExcelUrl from "../korpus.xlsx?url";
 
 type CorpusRow = {
@@ -43,10 +44,21 @@ type VocabSearchRow = {
   docFreq: number;
 };
 
+type VocabCloudWord = {
+  text: string;
+  size: number;
+  totalFreq: number;
+  docFreq: number;
+  x?: number;
+  y?: number;
+  rotate?: number;
+};
+
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app");
+const appRoot = app;
 const showFatalError = (message: string): void => {
-  app.innerHTML = `
+  appRoot.innerHTML = `
     <section class="panel">
       <h2>Kunne ikke laste appen</h2>
       <p class="muted">Det oppstod en feil i nettleseren.</p>
@@ -65,7 +77,7 @@ window.addEventListener("unhandledrejection", (event) => {
   showFatalError(reason);
 });
 
-app.innerHTML = `
+appRoot.innerHTML = `
   <h1>Garborg Korpus PWA</h1>
   <p class="muted">Fast korpus fra <code>korpus.xlsx</code>, med konkordans og ordliste/frekvens mot DH-lab API.</p>
 
@@ -217,6 +229,7 @@ let selectedDhlabids = new Set<string>();
 let inspectorOpen = false;
 let vocabIndex: VocabEntry[] = [];
 let lastVocabRows: VocabSearchRow[] = [];
+let vocabCloudRenderToken = 0;
 
 void loadDefaultCorpus();
 void loadVocabIndex();
@@ -779,20 +792,59 @@ function renderVocabCloud(rows: VocabSearchRow[]): void {
   const minFreq = Math.min(...freqs);
   const maxFreq = Math.max(...freqs);
   const spread = Math.max(1, maxFreq - minFreq);
+  const width = Math.max(460, Math.min(980, appRoot.clientWidth - 40));
+  const height = Math.max(340, Math.round(width * 0.5));
+  const token = ++vocabCloudRenderToken;
 
-  const items = cloudRows
-    .map((row) => {
-      const ratio = (row.totalFreq - minFreq) / spread;
-      const size = Math.round(12 + ratio * 28);
-      const alpha = 0.45 + ratio * 0.55;
-      return `<span class="word-cloud-item" style="font-size:${size}px;opacity:${alpha}" title="frekvens: ${row.totalFreq}, dokumenter: ${row.docFreq}">${escapeHtml(row.word)}</span>`;
-    })
-    .join("");
+  const words: VocabCloudWord[] = cloudRows.map((row) => {
+    const ratio = (row.totalFreq - minFreq) / spread;
+    return {
+      text: row.word,
+      size: Math.round(12 + ratio * 34),
+      totalFreq: row.totalFreq,
+      docFreq: row.docFreq
+    };
+  });
 
   vocabCloud.innerHTML = `
     <h3>Ordsky</h3>
-    <div class="word-cloud">${items}</div>
+    <div class="word-cloud"><div class="muted">Tegner ordsky ...</div></div>
   `;
+
+  const cloudLayout = cloudFactory<VocabCloudWord>()
+    .size([width, height])
+    .words(words)
+    .padding(2)
+    .rotate(() => (Math.random() < 0.18 ? 90 : 0))
+    .font("Inter, system-ui, sans-serif")
+    .fontSize((word) => word.size)
+    .random(() => Math.random())
+    .on("end", (placedWords) => {
+      if (token !== vocabCloudRenderToken) return;
+      const svgWords = placedWords.filter((word) => typeof word.x === "number" && typeof word.y === "number");
+      const svgMarkup = svgWords
+        .map((word, index) => {
+          const ratio = (word.totalFreq - minFreq) / spread;
+          const alpha = 0.5 + ratio * 0.5;
+          const hue = 200 + ((index * 23) % 70);
+          return `<text x="${word.x}" y="${word.y}" transform="rotate(${word.rotate || 0},${word.x},${word.y})" style="font-size:${word.size}px;opacity:${alpha};fill:hsl(${hue} 70% 28%);" title="frekvens: ${word.totalFreq}, dokumenter: ${word.docFreq}">${escapeHtml(word.text)}</text>`;
+        })
+        .join("");
+
+      vocabCloud.innerHTML = `
+        <h3>Ordsky</h3>
+        <div class="word-cloud">
+          <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Ordsky fra indekssøk">
+            <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+            <g transform="translate(${Math.round(width / 2)} ${Math.round(height / 2)})">
+              ${svgMarkup}
+            </g>
+          </svg>
+        </div>
+      `;
+    });
+
+  cloudLayout.start();
 }
 
 function parseWords(raw: string): string[] {

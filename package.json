@@ -21,9 +21,11 @@
   },
   "homepage": "https://github.com/Yoonsen/garborg#readme",
   "dependencies": {
+    "d3-cloud": "^1.2.9",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/d3-cloud": "^1.2.9",
     "@types/node": "^25.5.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.5"

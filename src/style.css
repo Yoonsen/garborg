@@ -169,14 +169,17 @@ th {
   border-radius: 10px;
   padding: 12px;
   background: #ffffff;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  align-items: center;
+  overflow: hidden;
 }
 
 .word-cloud-item {
   line-height: 1;
   color: #0f172a;
   user-select: none;
+}
+
+.word-cloud svg {
+  width: 100%;
+  height: auto;
+  display: block;
 }
