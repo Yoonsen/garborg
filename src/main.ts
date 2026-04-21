@@ -37,6 +37,12 @@ type VocabPayload = {
   words?: VocabEntry[];
 };
 
+type VocabSearchRow = {
+  word: string;
+  totalFreq: number;
+  docFreq: number;
+};
+
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app");
 
@@ -143,6 +149,7 @@ app.innerHTML = `
     </div>
     <div class="status" id="vocab-status">Laster ordindeks ...</div>
     <div id="vocab-results"></div>
+    <div id="vocab-cloud"></div>
   </section>
 `;
 
@@ -173,6 +180,7 @@ const vocabShortcuts = must<HTMLDivElement>("#vocab-shortcuts");
 const nynorskSuffixes = must<HTMLDivElement>("#nynorsk-suffixes");
 const vocabStatus = must<HTMLDivElement>("#vocab-status");
 const vocabResults = must<HTMLDivElement>("#vocab-results");
+const vocabCloud = must<HTMLDivElement>("#vocab-cloud");
 const vocabHelp = must<HTMLDivElement>("#vocab-help");
 
 let corpus: CorpusRow[] = [];
@@ -310,6 +318,7 @@ vocabSearchBtn.addEventListener("click", () => {
 vocabClearBtn.addEventListener("click", () => {
   vocabPattern.value = "";
   vocabResults.innerHTML = "";
+  vocabCloud.innerHTML = "";
   vocabStatus.textContent = `Ordindeks lastet: ${vocabIndex.length} ord.`;
 });
 
@@ -602,6 +611,7 @@ function runVocabSearch(): void {
   if (!vocabIndex.length) {
     vocabStatus.textContent = "Ordindeks mangler.";
     vocabResults.innerHTML = "";
+    vocabCloud.innerHTML = "";
     return;
   }
   const pattern = vocabPattern.value.trim();
@@ -612,6 +622,7 @@ function runVocabSearch(): void {
   if (!pattern) {
     vocabStatus.textContent = "Skriv inn et mønster.";
     vocabResults.innerHTML = "";
+    vocabCloud.innerHTML = "";
     return;
   }
 
@@ -621,6 +632,7 @@ function runVocabSearch(): void {
   } catch (error) {
     vocabStatus.textContent = `Ugyldig mønster: ${toError(error)}`;
     vocabResults.innerHTML = "";
+    vocabCloud.innerHTML = "";
     return;
   }
 
@@ -652,6 +664,7 @@ function runVocabSearch(): void {
 
   if (!rows.length) {
     vocabResults.innerHTML = "<div class='muted'>Ingen treff i ordindeks.</div>";
+    vocabCloud.innerHTML = "";
     return;
   }
 
@@ -666,6 +679,7 @@ function runVocabSearch(): void {
       <tbody>${body}</tbody>
     </table>
   `;
+  renderVocabCloud(rows);
 }
 
 function createMatcher(mode: string, pattern: string): (entry: VocabEntry) => boolean {
@@ -699,6 +713,33 @@ function globToRegex(globPattern: string): RegExp {
     .replace(/\*/g, ".*")
     .replace(/\?/g, ".");
   return new RegExp(`^${escaped}$`, "i");
+}
+
+function renderVocabCloud(rows: VocabSearchRow[]): void {
+  const cloudRows = rows.slice(0, 120);
+  if (!cloudRows.length) {
+    vocabCloud.innerHTML = "";
+    return;
+  }
+
+  const freqs = cloudRows.map((row) => row.totalFreq);
+  const minFreq = Math.min(...freqs);
+  const maxFreq = Math.max(...freqs);
+  const spread = Math.max(1, maxFreq - minFreq);
+
+  const items = cloudRows
+    .map((row) => {
+      const ratio = (row.totalFreq - minFreq) / spread;
+      const size = Math.round(12 + ratio * 28);
+      const alpha = 0.45 + ratio * 0.55;
+      return `<span class="word-cloud-item" style="font-size:${size}px;opacity:${alpha}" title="frekvens: ${row.totalFreq}, dokumenter: ${row.docFreq}">${escapeHtml(row.word)}</span>`;
+    })
+    .join("");
+
+  vocabCloud.innerHTML = `
+    <h3>Ordsky</h3>
+    <div class="word-cloud">${items}</div>
+  `;
 }
 
 function parseWords(raw: string): string[] {
