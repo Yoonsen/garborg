@@ -45,6 +45,25 @@ type VocabSearchRow = {
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app");
+const showFatalError = (message: string): void => {
+  app.innerHTML = `
+    <section class="panel">
+      <h2>Kunne ikke laste appen</h2>
+      <p class="muted">Det oppstod en feil i nettleseren.</p>
+      <pre>${escapeHtml(message)}</pre>
+    </section>
+  `;
+};
+
+window.addEventListener("error", (event) => {
+  const message = event.error instanceof Error ? event.error.stack || event.error.message : String(event.message);
+  showFatalError(message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason instanceof Error ? event.reason.stack || event.reason.message : String(event.reason);
+  showFatalError(reason);
+});
 
 app.innerHTML = `
   <h1>Garborg Korpus PWA</h1>
@@ -126,6 +145,13 @@ app.innerHTML = `
         <label for="vocab-max-rows">Maks rader</label>
         <input id="vocab-max-rows" type="number" min="10" value="200" />
       </div>
+      <div style="flex:1; min-width:140px;">
+        <label for="vocab-view">Visning</label>
+        <select id="vocab-view">
+          <option value="list">Liste</option>
+          <option value="cloud">Ordsky</option>
+        </select>
+      </div>
     </div>
     <div class="tool-row" id="vocab-shortcuts">
       <button type="button" class="secondary" data-mode="glob" data-pattern="*skap">*skap</button>
@@ -174,6 +200,7 @@ const vocabMode = must<HTMLSelectElement>("#vocab-mode");
 const vocabPattern = must<HTMLInputElement>("#vocab-pattern");
 const vocabMinFreq = must<HTMLInputElement>("#vocab-min-freq");
 const vocabMaxRows = must<HTMLInputElement>("#vocab-max-rows");
+const vocabView = must<HTMLSelectElement>("#vocab-view");
 const vocabSearchBtn = must<HTMLButtonElement>("#vocab-search-btn");
 const vocabClearBtn = must<HTMLButtonElement>("#vocab-clear-btn");
 const vocabShortcuts = must<HTMLDivElement>("#vocab-shortcuts");
@@ -189,6 +216,7 @@ let byUrn = new Map<string, CorpusRow>();
 let selectedDhlabids = new Set<string>();
 let inspectorOpen = false;
 let vocabIndex: VocabEntry[] = [];
+let lastVocabRows: VocabSearchRow[] = [];
 
 void loadDefaultCorpus();
 void loadVocabIndex();
@@ -317,6 +345,7 @@ vocabSearchBtn.addEventListener("click", () => {
 
 vocabClearBtn.addEventListener("click", () => {
   vocabPattern.value = "";
+  lastVocabRows = [];
   vocabResults.innerHTML = "";
   vocabCloud.innerHTML = "";
   vocabStatus.textContent = `Ordindeks lastet: ${vocabIndex.length} ord.`;
@@ -331,6 +360,10 @@ vocabPattern.addEventListener("keydown", (event) => {
 
 vocabMode.addEventListener("change", () => {
   updateVocabHelpAndPlaceholder();
+});
+
+vocabView.addEventListener("change", () => {
+  renderVocabOutput(lastVocabRows);
 });
 
 vocabShortcuts.addEventListener("click", (event) => {
@@ -351,14 +384,8 @@ nynorskSuffixes.addEventListener("click", (event) => {
   setVocabQuery(mode, pattern, true);
 });
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {
-      // Ignore service worker failures in development.
-    });
-  });
-} else if ("serviceWorker" in navigator) {
-  // Prevent stale cached assets while developing locally.
+if ("serviceWorker" in navigator) {
+  // Keep this app cache-safe for fast iteration and avoid stale UI in Chrome.
   navigator.serviceWorker.getRegistrations().then((registrations) => {
     for (const registration of registrations) {
       registration.unregister();
@@ -610,6 +637,7 @@ function updateVocabHelpAndPlaceholder(): void {
 function runVocabSearch(): void {
   if (!vocabIndex.length) {
     vocabStatus.textContent = "Ordindeks mangler.";
+    lastVocabRows = [];
     vocabResults.innerHTML = "";
     vocabCloud.innerHTML = "";
     return;
@@ -621,6 +649,7 @@ function runVocabSearch(): void {
 
   if (!pattern) {
     vocabStatus.textContent = "Skriv inn et mønster.";
+    lastVocabRows = [];
     vocabResults.innerHTML = "";
     vocabCloud.innerHTML = "";
     return;
@@ -631,6 +660,7 @@ function runVocabSearch(): void {
     matcher = createMatcher(mode, pattern);
   } catch (error) {
     vocabStatus.textContent = `Ugyldig mønster: ${toError(error)}`;
+    lastVocabRows = [];
     vocabResults.innerHTML = "";
     vocabCloud.innerHTML = "";
     return;
@@ -663,11 +693,35 @@ function runVocabSearch(): void {
     `Fant ${filtered.length} ord (viser ${rows.length}) i ${selectedRows.length} valgte dokument.`;
 
   if (!rows.length) {
+    lastVocabRows = [];
     vocabResults.innerHTML = "<div class='muted'>Ingen treff i ordindeks.</div>";
     vocabCloud.innerHTML = "";
     return;
   }
 
+  lastVocabRows = rows;
+  renderVocabOutput(rows);
+}
+
+function renderVocabOutput(rows: VocabSearchRow[]): void {
+  if (!rows.length) {
+    vocabResults.innerHTML = "";
+    vocabCloud.innerHTML = "";
+    return;
+  }
+
+  const view = vocabView.value;
+  if (view === "cloud") {
+    vocabResults.innerHTML = "";
+    renderVocabCloud(rows);
+    return;
+  }
+
+  renderVocabTable(rows);
+  vocabCloud.innerHTML = "";
+}
+
+function renderVocabTable(rows: VocabSearchRow[]): void {
   const body = rows
     .map((row) => `<tr><td>${escapeHtml(row.word)}</td><td>${row.totalFreq}</td><td>${row.docFreq}</td></tr>`)
     .join("");
@@ -679,7 +733,6 @@ function runVocabSearch(): void {
       <tbody>${body}</tbody>
     </table>
   `;
-  renderVocabCloud(rows);
 }
 
 function createMatcher(mode: string, pattern: string): (entry: VocabEntry) => boolean {
