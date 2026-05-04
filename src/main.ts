@@ -73,7 +73,7 @@ const CORPORA: CorpusConfig[] = [
   },
   {
     id: "dagbok",
-    label: "Dagboker",
+    label: "Dagbøker",
     fileName: "korpus_dagbok.xlsx",
     excelUrl: corpusDagbokExcelUrl,
     vocabUrl: "./vocab-dagbok.json"
