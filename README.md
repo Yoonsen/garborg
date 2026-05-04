@@ -10,21 +10,21 @@ Se også: `APP_PHILOSOPHY.md` for prinsippet "data som velger operasjoner".
 
 ```bash
 npm install
-npm run build:vocab   # generer public/vocab.json (anbefalt)
+npm run build:vocab   # generer vocab-filer for begge korpus (anbefalt)
 npm run dev
 ```
 
 ## Bruk
 
-1. Appen laster `korpus.xlsx` automatisk ved oppstart.
-2. Kjør konkordanssok pa `dhlabid`-utvalget.
-3. Kjør frekvens pa `urn`-utvalget.
+1. Appen lar brukeren velge mellom `korpus_skrifter.xlsx` og `korpus_dagbok.xlsx`.
+2. Kjør konkordanssok pa `dhlabid`-utvalget i valgt korpus.
+3. Kjør frekvens pa `urn`-utvalget i valgt korpus.
 
-Korpus er fast (`korpus.xlsx`) i denne versjonen.
+Korpusa er faste i denne versjonen.
 
 ## Ferdig ordindeks
 
-Appen kan bruke en forhåndsberegnet ordindeks (`public/vocab.json`) for raskt prefix/suffix/regex/glob-sok.
+Appen kan bruke forhåndsberegnede ordindekser (`public/vocab-skrifter.json` og `public/vocab-dagbok.json`) for raskt prefix/suffix/regex/glob-sok.
 
 Generer indeks:
 

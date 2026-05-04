@@ -1,7 +1,8 @@
 import "./style.css";
 import * as XLSX from "xlsx";
 import cloudFactory from "d3-cloud";
-import corpusExcelUrl from "../korpus.xlsx?url";
+import corpusDagbokExcelUrl from "../korpus_dagbok.xlsx?url";
+import corpusSkrifterExcelUrl from "../korpus_skrifter.xlsx?url";
 
 type CorpusRow = {
   dhlabid: string;
@@ -54,6 +55,35 @@ type VocabCloudWord = {
   rotate?: number;
 };
 
+type CorpusConfig = {
+  id: string;
+  label: string;
+  fileName: string;
+  excelUrl: string;
+  vocabUrl: string;
+};
+
+const CORPORA: CorpusConfig[] = [
+  {
+    id: "skrifter",
+    label: "Skrifter",
+    fileName: "korpus_skrifter.xlsx",
+    excelUrl: corpusSkrifterExcelUrl,
+    vocabUrl: "./vocab-skrifter.json"
+  },
+  {
+    id: "dagbok",
+    label: "Dagboker",
+    fileName: "korpus_dagbok.xlsx",
+    excelUrl: corpusDagbokExcelUrl,
+    vocabUrl: "./vocab-dagbok.json"
+  }
+];
+const DEFAULT_CORPUS_ID = CORPORA[0]?.id ?? "skrifter";
+const corpusOptionsHtml = CORPORA.map(
+  (corpusConfig) => `<option value="${escapeHtml(corpusConfig.id)}">${escapeHtml(corpusConfig.label)}</option>`
+).join("");
+
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app");
 const appRoot = app;
@@ -79,10 +109,12 @@ window.addEventListener("unhandledrejection", (event) => {
 
 appRoot.innerHTML = `
   <h1>Garborg Korpus PWA</h1>
-  <p class="muted">Fast korpus fra <code>korpus.xlsx</code>, med konkordans og ordliste/frekvens mot DH-lab API.</p>
+  <p class="muted">Velg mellom faste korpus med konkordans og ordliste/frekvens mot DH-lab API.</p>
 
   <section class="panel">
     <h2>1) Korpus</h2>
+    <label for="corpus-select">Velg korpus</label>
+    <select id="corpus-select">${corpusOptionsHtml}</select>
     <div class="row" style="margin-top:10px;">
       <button id="inspect-btn" type="button">Inspiser korpus</button>
       <button id="select-all-btn" type="button">Velg alle</button>
@@ -191,6 +223,7 @@ appRoot.innerHTML = `
   </section>
 `;
 
+const corpusSelect = must<HTMLSelectElement>("#corpus-select");
 const inspectBtn = must<HTMLButtonElement>("#inspect-btn");
 const selectAllBtn = must<HTMLButtonElement>("#select-all-btn");
 const clearAllBtn = must<HTMLButtonElement>("#clear-all-btn");
@@ -226,13 +259,21 @@ let corpus: CorpusRow[] = [];
 let byId = new Map<string, CorpusRow>();
 let byUrn = new Map<string, CorpusRow>();
 let selectedDhlabids = new Set<string>();
+const selectedDhlabidsByCorpus = new Map<string, Set<string>>();
 let inspectorOpen = false;
 let vocabIndex: VocabEntry[] = [];
 let lastVocabRows: VocabSearchRow[] = [];
 let vocabCloudRenderToken = 0;
+let activeCorpusId = DEFAULT_CORPUS_ID;
+let corpusLoadToken = 0;
+let vocabLoadToken = 0;
 
-void loadDefaultCorpus();
-void loadVocabIndex();
+corpusSelect.value = DEFAULT_CORPUS_ID;
+void switchCorpus(DEFAULT_CORPUS_ID);
+
+corpusSelect.addEventListener("change", () => {
+  void switchCorpus(corpusSelect.value);
+});
 
 inspectBtn.addEventListener("click", () => {
   inspectorOpen = !inspectorOpen;
@@ -361,7 +402,7 @@ vocabClearBtn.addEventListener("click", () => {
   lastVocabRows = [];
   vocabResults.innerHTML = "";
   vocabCloud.innerHTML = "";
-  vocabStatus.textContent = `Ordindeks lastet: ${vocabIndex.length} ord.`;
+  vocabStatus.textContent = formatVocabLoadedStatus();
 });
 
 vocabPattern.addEventListener("keydown", (event) => {
@@ -406,19 +447,58 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-async function loadDefaultCorpus(): Promise<void> {
-  corpusStatus.textContent = "Laster fast korpus (korpus.xlsx) ...";
+async function switchCorpus(corpusId: string): Promise<void> {
+  const corpusConfig = getCorpusConfig(corpusId);
+  if (corpus.length) {
+    selectedDhlabidsByCorpus.set(activeCorpusId, new Set(selectedDhlabids));
+  }
+
+  activeCorpusId = corpusConfig.id;
+  corpusSelect.value = corpusConfig.id;
+  resetOutputsForCorpusChange();
+  await Promise.all([loadCorpus(corpusConfig), loadVocabIndex(corpusConfig)]);
+}
+
+function getCorpusConfig(corpusId: string): CorpusConfig {
+  const corpusConfig = CORPORA.find((item) => item.id === corpusId);
+  if (!corpusConfig) {
+    throw new Error(`Ukjent korpus: ${corpusId}`);
+  }
+  return corpusConfig;
+}
+
+function getActiveCorpusConfig(): CorpusConfig {
+  return getCorpusConfig(activeCorpusId);
+}
+
+function resetOutputsForCorpusChange(): void {
+  concStatus.textContent = "Ikke kjort enda.";
+  concResults.innerHTML = "";
+  freqStatus.textContent = "Ikke kjort enda.";
+  freqResults.innerHTML = "";
+  lastVocabRows = [];
+  vocabResults.innerHTML = "";
+  vocabCloud.innerHTML = "";
+  vocabStatus.textContent = "Laster ordindeks ...";
+}
+
+async function loadCorpus(corpusConfig: CorpusConfig): Promise<void> {
+  const token = ++corpusLoadToken;
+  corpusStatus.textContent = `Laster ${corpusConfig.label.toLowerCase()} fra ${corpusConfig.fileName} ...`;
   try {
-    const response = await fetch(corpusExcelUrl);
+    const response = await fetch(corpusConfig.excelUrl);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
     const buffer = await response.arrayBuffer();
     const rows = parseExcelBuffer(buffer);
-    setCorpus(rows, "Fast korpus lastet");
+    if (token !== corpusLoadToken || corpusConfig.id !== activeCorpusId) return;
+    setCorpus(rows, `${corpusConfig.label} lastet`, corpusConfig.id);
   } catch (error) {
+    if (token !== corpusLoadToken || corpusConfig.id !== activeCorpusId) return;
+    setCorpus([], `Kunne ikke laste ${corpusConfig.label.toLowerCase()}`, corpusConfig.id);
     corpusStatus.textContent =
-      `Kunne ikke laste fast korpus automatisk (${toError(error)}).`;
+      `Kunne ikke laste ${corpusConfig.label.toLowerCase()} automatisk (${toError(error)}).`;
   }
 }
 
@@ -541,11 +621,16 @@ function renderFrequencies(rows: FrequencyRow[]): void {
   `;
 }
 
-function setCorpus(rows: CorpusRow[], statusPrefix: string): void {
+function setCorpus(rows: CorpusRow[], statusPrefix: string, corpusId: string): void {
   corpus = rows;
   byId = new Map(rows.map((row) => [row.dhlabid, row]));
   byUrn = new Map(rows.map((row) => [row.urn, row]));
-  selectedDhlabids = new Set(rows.map((row) => row.dhlabid));
+  const savedSelection = selectedDhlabidsByCorpus.get(corpusId);
+  if (savedSelection?.size) {
+    selectedDhlabids = new Set(rows.map((row) => row.dhlabid).filter((id) => savedSelection.has(id)));
+  } else {
+    selectedDhlabids = new Set(rows.map((row) => row.dhlabid));
+  }
   corpusStatus.textContent = `${statusPrefix}: ${rows.length} rader.`;
   updateSubcorpusStatus();
   if (inspectorOpen) renderCorpusInspector();
@@ -558,7 +643,7 @@ function getSelectedCorpusRows(): CorpusRow[] {
 
 function updateSubcorpusStatus(): void {
   subcorpusStatus.textContent =
-    `Subkorpus: ${selectedDhlabids.size} av ${corpus.length} dokument valgt.`;
+    `Subkorpus i ${getActiveCorpusConfig().label}: ${selectedDhlabids.size} av ${corpus.length} dokument valgt.`;
 }
 
 function renderCorpusInspector(): void {
@@ -598,20 +683,28 @@ function renderCorpusInspector(): void {
   `;
 }
 
-async function loadVocabIndex(): Promise<void> {
+async function loadVocabIndex(corpusConfig: CorpusConfig): Promise<void> {
+  const token = ++vocabLoadToken;
   try {
-    const response = await fetch("./vocab.json");
+    const response = await fetch(corpusConfig.vocabUrl);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
     const payload = (await response.json()) as VocabPayload;
+    if (token !== vocabLoadToken || corpusConfig.id !== activeCorpusId) return;
     vocabIndex = Array.isArray(payload.words) ? payload.words : [];
-    vocabStatus.textContent = `Ordindeks lastet: ${vocabIndex.length} ord.`;
+    vocabStatus.textContent = formatVocabLoadedStatus();
     updateVocabHelpAndPlaceholder();
   } catch (error) {
+    if (token !== vocabLoadToken || corpusConfig.id !== activeCorpusId) return;
+    vocabIndex = [];
     vocabStatus.textContent =
-      `Ingen ferdig ordindeks funnet (${toError(error)}). Kjør npm run build:vocab og deploy på nytt.`;
+      `Ingen ferdig ordindeks funnet for ${corpusConfig.label.toLowerCase()} (${toError(error)}). Kjør npm run build:vocab og deploy på nytt.`;
   }
+}
+
+function formatVocabLoadedStatus(): string {
+  return `Ordindeks for ${getActiveCorpusConfig().label.toLowerCase()} lastet: ${vocabIndex.length} ord.`;
 }
 
 function setVocabQuery(mode: string, pattern: string, autoRun: boolean): void {
@@ -703,7 +796,7 @@ function runVocabSearch(): void {
   filtered.sort((a, b) => b.totalFreq - a.totalFreq || a.word.localeCompare(b.word, "nb"));
   const rows = filtered.slice(0, maxRows);
   vocabStatus.textContent =
-    `Fant ${filtered.length} ord (viser ${rows.length}) i ${selectedRows.length} valgte dokument.`;
+    `Fant ${filtered.length} ord (viser ${rows.length}) i ${selectedRows.length} valgte dokument i ${getActiveCorpusConfig().label.toLowerCase()}.`;
 
   if (!rows.length) {
     lastVocabRows = [];

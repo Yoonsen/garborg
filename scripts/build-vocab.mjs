@@ -3,22 +3,38 @@ import path from "node:path";
 import XLSX from "xlsx";
 
 const ROOT = process.cwd();
-const CORPUS_XLSX = path.join(ROOT, "korpus.xlsx");
-const OUT_FILE = path.join(ROOT, "public", "vocab.json");
 const API_BASE = "https://api.nb.no/dhlab";
 const CUTOFF = Number(process.env.CUTOFF || 0);
+const CORPORA = [
+  {
+    id: "skrifter",
+    corpusFile: path.join(ROOT, "korpus_skrifter.xlsx"),
+    outFile: path.join(ROOT, "public", "vocab-skrifter.json")
+  },
+  {
+    id: "dagbok",
+    corpusFile: path.join(ROOT, "korpus_dagbok.xlsx"),
+    outFile: path.join(ROOT, "public", "vocab-dagbok.json")
+  }
+];
 
 async function main() {
-  const corpus = readCorpus(CORPUS_XLSX);
+  for (const corpusConfig of CORPORA) {
+    await buildCorpusVocab(corpusConfig);
+  }
+}
+
+async function buildCorpusVocab({ id, corpusFile, outFile }) {
+  const corpus = readCorpus(corpusFile);
   if (!corpus.length) {
-    throw new Error("Fant ingen korpusrader med urn + dhlabid.");
+    throw new Error(`Fant ingen korpusrader med urn + dhlabid i ${path.basename(corpusFile)}.`);
   }
 
   const urns = corpus.map((row) => row.urn);
   const dhlabidByUrn = new Map(corpus.map((row) => [row.urn, row.dhlabid]));
 
-  console.log(`Korpusdokument: ${urns.length}`);
-  console.log(`Henter hele vokabularet fra /frequencies (cutoff=${CUTOFF}) ...`);
+  console.log(`[${id}] Korpusdokument: ${urns.length}`);
+  console.log(`[${id}] Henter hele vokabularet fra /frequencies (cutoff=${CUTOFF}) ...`);
   const frequencyRows = await fetchCorpusFrequencies(urns, CUTOFF);
   const perWord = new Map();
   for (const row of frequencyRows) {
@@ -49,6 +65,8 @@ async function main() {
   const payload = {
     generatedAt: new Date().toISOString(),
     source: {
+      corpusId: id,
+      corpusFile: path.basename(corpusFile),
       endpointFrequencies: `${API_BASE}/frequencies`,
       corpusSize: corpus.length,
       cutoff: CUTOFF
@@ -56,9 +74,9 @@ async function main() {
     words: wordsOut
   };
 
-  await fs.mkdir(path.dirname(OUT_FILE), { recursive: true });
-  await fs.writeFile(OUT_FILE, JSON.stringify(payload), "utf8");
-  console.log(`Skrev ${wordsOut.length} ord til ${path.relative(ROOT, OUT_FILE)}`);
+  await fs.mkdir(path.dirname(outFile), { recursive: true });
+  await fs.writeFile(outFile, JSON.stringify(payload), "utf8");
+  console.log(`[${id}] Skrev ${wordsOut.length} ord til ${path.relative(ROOT, outFile)}`);
 }
 
 function readCorpus(filePath) {
